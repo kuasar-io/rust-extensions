@@ -619,7 +619,7 @@ async fn copy_io_or_console<P>(
 
 #[async_trait]
 impl Spawner for ShimExecutor {
-    async fn execute(&self, cmd: Command) -> runc::Result<(ExitStatus, u32, String, String)> {
+    async fn execute(&self, cmd: Command, after_start: Box<dyn Fn()+Send>, wait_output: bool) -> runc::Result<(ExitStatus, u32, String, String)> {
         let mut cmd = cmd;
         let subscription = monitor_subscribe(Topic::Pid)
             .await
@@ -632,12 +632,17 @@ impl Spawner for ShimExecutor {
                 return Err(runc::error::Error::ProcessSpawnFailed(e));
             }
         };
+        after_start();
         let pid = child.id().unwrap();
-        let (stdout, stderr, exit_code) = tokio::join!(
+        let (stdout, stderr, exit_code) = if wait_output {
+            tokio::join!(
             read_std(child.stdout),
             read_std(child.stderr),
             wait_pid(pid as i32, subscription)
-        );
+        )
+        }  else  {
+            ("".to_string(), "".to_string(), wait_pid(pid as i32, subscription).await)
+        };
         let status = ExitStatus::from_raw(exit_code);
         monitor_unsubscribe(sid).await.unwrap_or_default();
         Ok((status, pid, stdout, stderr))

@@ -73,6 +73,9 @@ pub mod types;
 /// Includes event names shims can publish to containerd.
 pub mod topics;
 
+#[cfg(feature = "async")]
+pub mod sandbox;
+
 pub mod shim_sync {
     /// TTRPC client reexport for easier access.
     pub use ttrpc::Client;

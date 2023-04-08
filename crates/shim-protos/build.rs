@@ -32,6 +32,7 @@ fn main() {
             "vendor/github.com/containerd/containerd/protobuf/plugin/fieldpath.proto",
             "vendor/github.com/containerd/containerd/api/types/mount.proto",
             "vendor/github.com/containerd/containerd/api/types/task/task.proto",
+            "vendor/github.com/containerd/containerd/api/types/platform.proto",
         ],
         false,
     );
@@ -74,6 +75,12 @@ fn main() {
                 "vendor/github.com/containerd/containerd/runtime/v2/task/shim.proto",
                 "vendor/github.com/containerd/containerd/api/services/ttrpc/events/v1/events.proto",
             ],
+            true,
+        );
+
+        genmodule(
+            "sandbox_async",
+            &["vendor/github.com/containerd/containerd/api/runtime/sandbox/v1/sandbox.proto"],
             true,
         );
     }

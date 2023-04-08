@@ -19,13 +19,17 @@ use std::{
     fmt::Debug,
     fs::{File, OpenOptions},
     io::Result,
-    os::unix::{fs::OpenOptionsExt, io::AsRawFd},
+    os::unix::{
+        fs::OpenOptionsExt,
+        io::{FromRawFd, IntoRawFd, RawFd},
+    },
     process::Stdio,
     sync::Mutex,
 };
 
 use log::debug;
 use nix::unistd::{Gid, Uid};
+#[cfg(not(feature = "async"))]
 use os_pipe::{PipeReader, PipeWriter};
 #[cfg(feature = "async")]
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -100,8 +104,8 @@ impl Default for IOOption {
 /// When one side of the pipe is closed, the state will be represented with [`None`].
 #[derive(Debug)]
 pub struct Pipe {
-    rd: PipeReader,
-    wr: PipeWriter,
+    rd: RawFd,
+    wr: RawFd,
 }
 
 #[derive(Debug)]
@@ -114,7 +118,10 @@ pub struct PipedIo {
 impl Pipe {
     fn new() -> std::io::Result<Self> {
         let (rd, wr) = os_pipe::pipe()?;
-        Ok(Self { rd, wr })
+        Ok(Self {
+            rd: rd.into_raw_fd(),
+            wr: wr.into_raw_fd(),
+        })
     }
 }
 
@@ -141,11 +148,9 @@ impl PipedIo {
         let uid = Some(Uid::from_raw(uid));
         let gid = Some(Gid::from_raw(gid));
         if stdin {
-            let rd = pipe.rd.try_clone()?;
-            nix::unistd::fchown(rd.as_raw_fd(), uid, gid)?;
+            nix::unistd::fchown(pipe.rd, uid, gid)?;
         } else {
-            let wr = pipe.wr.try_clone()?;
-            nix::unistd::fchown(wr.as_raw_fd(), uid, gid)?;
+            nix::unistd::fchown(pipe.wr, uid, gid)?;
         }
         Ok(Some(pipe))
     }
@@ -154,19 +159,16 @@ impl PipedIo {
 impl Io for PipedIo {
     #[cfg(not(feature = "async"))]
     fn stdin(&self) -> Option<Box<dyn Write + Send + Sync>> {
-        self.stdin.as_ref().and_then(|pipe| {
-            pipe.wr
-                .try_clone()
-                .map(|x| Box::new(x) as Box<dyn Write + Send + Sync>)
-                .ok()
+        self.stdin.as_ref().map(|pipe| {
+            let writer = unsafe { PipeWriter::from_raw_fd(pipe.wr) };
+            Box::new(writer) as Box<dyn Write + Send + Sync>
         })
     }
 
     #[cfg(feature = "async")]
     fn stdin(&self) -> Option<Box<dyn AsyncWrite + Send + Sync + Unpin>> {
         self.stdin.as_ref().and_then(|pipe| {
-            let fd = pipe.wr.as_raw_fd();
-            tokio_pipe::PipeWrite::from_raw_fd_checked(fd)
+            tokio_pipe::PipeWrite::from_raw_fd_checked(pipe.wr)
                 .map(|x| Box::new(x) as Box<dyn AsyncWrite + Send + Sync + Unpin>)
                 .ok()
         })
@@ -174,19 +176,16 @@ impl Io for PipedIo {
 
     #[cfg(not(feature = "async"))]
     fn stdout(&self) -> Option<Box<dyn Read + Send>> {
-        self.stdout.as_ref().and_then(|pipe| {
-            pipe.rd
-                .try_clone()
-                .map(|x| Box::new(x) as Box<dyn Read + Send>)
-                .ok()
+        self.stdout.as_ref().map(|pipe| {
+            let reader = unsafe { PipeReader::from_raw_fd(pipe.rd) };
+            Box::new(reader) as Box<dyn Read + Send>
         })
     }
 
     #[cfg(feature = "async")]
     fn stdout(&self) -> Option<Box<dyn AsyncRead + Send + Sync + Unpin>> {
         self.stdout.as_ref().and_then(|pipe| {
-            let fd = pipe.rd.as_raw_fd();
-            tokio_pipe::PipeRead::from_raw_fd_checked(fd)
+            tokio_pipe::PipeRead::from_raw_fd_checked(pipe.rd)
                 .map(|x| Box::new(x) as Box<dyn AsyncRead + Send + Sync + Unpin>)
                 .ok()
         })
@@ -194,19 +193,16 @@ impl Io for PipedIo {
 
     #[cfg(not(feature = "async"))]
     fn stderr(&self) -> Option<Box<dyn Read + Send>> {
-        self.stderr.as_ref().and_then(|pipe| {
-            pipe.rd
-                .try_clone()
-                .map(|x| Box::new(x) as Box<dyn Read + Send>)
-                .ok()
+        self.stderr.as_ref().map(|pipe| {
+            let reader = unsafe { PipeReader::from_raw_fd(pipe.rd) };
+            Box::new(reader) as Box<dyn Read + Send>
         })
     }
 
     #[cfg(feature = "async")]
     fn stderr(&self) -> Option<Box<dyn AsyncRead + Send + Sync + Unpin>> {
         self.stderr.as_ref().and_then(|pipe| {
-            let fd = pipe.rd.as_raw_fd();
-            tokio_pipe::PipeRead::from_raw_fd_checked(fd)
+            tokio_pipe::PipeRead::from_raw_fd_checked(pipe.rd)
                 .map(|x| Box::new(x) as Box<dyn AsyncRead + Send + Sync + Unpin>)
                 .ok()
         })
@@ -216,18 +212,15 @@ impl Io for PipedIo {
     // Thus, the files passed to commands will be not closed after command exit.
     fn set(&self, cmd: &mut Command) -> std::io::Result<()> {
         if let Some(p) = self.stdin.as_ref() {
-            let pr = p.rd.try_clone()?;
-            cmd.stdin(pr);
+            cmd.stdin(unsafe { Stdio::from_raw_fd(p.rd) });
         }
 
         if let Some(p) = self.stdout.as_ref() {
-            let pw = p.wr.try_clone()?;
-            cmd.stdout(pw);
+            cmd.stdout(unsafe { Stdio::from_raw_fd(p.wr) });
         }
 
         if let Some(p) = self.stderr.as_ref() {
-            let pw = p.wr.try_clone()?;
-            cmd.stdout(pw);
+            cmd.stderr(unsafe { Stdio::from_raw_fd(p.wr) });
         }
 
         Ok(())
@@ -235,11 +228,11 @@ impl Io for PipedIo {
 
     fn close_after_start(&self) {
         if let Some(p) = self.stdout.as_ref() {
-            nix::unistd::close(p.wr.as_raw_fd()).unwrap_or_else(|e| debug!("close stdout: {}", e));
+            nix::unistd::close(p.wr).unwrap_or_else(|e| debug!("close stdout: {}", e));
         }
 
         if let Some(p) = self.stderr.as_ref() {
-            nix::unistd::close(p.wr.as_raw_fd()).unwrap_or_else(|e| debug!("close stderr: {}", e));
+            nix::unistd::close(p.wr).unwrap_or_else(|e| debug!("close stderr: {}", e));
         }
     }
 }

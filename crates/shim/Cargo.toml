@@ -11,7 +11,8 @@ repository.workspace = true
 homepage.workspace = true
 
 [features]
-async = ["tokio", "containerd-shim-protos/async", "async-trait", "futures", "signal-hook-tokio"]
+async = ["tokio", "containerd-shim-protos/async", "async-trait", "futures", "signal-hook-tokio", "pin-project-lite"]
+sandbox = ["async"]
 
 [[example]]
 name = "skeleton_async"
@@ -40,8 +41,9 @@ containerd-shim-protos = { path = "../shim-protos", version = "0.2.0" }
 
 async-trait = { version = "0.1.51", optional = true }
 tokio = { version = "1.17.0", features = ["full"], optional = true }
-futures = {version = "0.3.21", optional = true}
-signal-hook-tokio = {version = "0.3.1", optional = true, features = ["futures-v0_3"]}
+futures = { version = "0.3.21", optional = true }
+signal-hook-tokio = { version = "0.3.1", optional = true, features = ["futures-v0_3"] }
+pin-project-lite = { version = "0.2.7", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 cgroups-rs = "0.2.9"

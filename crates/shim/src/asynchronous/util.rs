@@ -19,7 +19,7 @@ use std::path::Path;
 use containerd_shim_protos::{api::Mount, shim::oci::Options};
 use libc::mode_t;
 use nix::sys::stat::Mode;
-use oci_spec::runtime::Spec;
+use serde::de::DeserializeOwned;
 use tokio::{
     fs::OpenOptions,
     io::{AsyncReadExt, AsyncWriteExt},
@@ -87,10 +87,10 @@ pub async fn write_str_to_file(filename: impl AsRef<Path>, s: impl AsRef<str>) -
     Ok(())
 }
 
-pub async fn read_spec(bundle: impl AsRef<Path>) -> Result<Spec> {
+pub async fn read_spec<T: DeserializeOwned>(bundle: impl AsRef<Path>) -> Result<T> {
     let path = bundle.as_ref().join(CONFIG_FILE_NAME);
     let content = read_file_to_str(&path).await?;
-    serde_json::from_str::<Spec>(content.as_str()).map_err(other_error!(e, "read spec"))
+    serde_json::from_str::<T>(content.as_str()).map_err(other_error!(e, "read spec"))
 }
 
 pub async fn read_options(bundle: impl AsRef<Path>) -> Result<Options> {

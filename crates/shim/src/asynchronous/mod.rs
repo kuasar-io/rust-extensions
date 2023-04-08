@@ -17,18 +17,23 @@
 use std::{
     convert::TryFrom,
     env,
+    future::Future,
     os::unix::{fs::FileTypeExt, io::AsRawFd, net::UnixListener},
     path::Path,
+    pin::Pin,
     process,
     process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
+    task::{Context, Poll},
 };
 
 use async_trait::async_trait;
 use command_fds::{CommandFdExt, FdMapping};
+#[cfg(feature = "sandbox")]
+use containerd_shim_protos::sandbox::sandbox_ttrpc::{create_sandbox, Sandbox};
 use containerd_shim_protos::{
     api::DeleteResponse,
     protobuf::Message,
@@ -47,7 +52,10 @@ use nix::{
     unistd::Pid,
 };
 use signal_hook_tokio::Signals;
-use tokio::{io::AsyncWriteExt, sync::Notify};
+use tokio::{
+    io::AsyncWriteExt,
+    sync::{futures::Notified, Notify},
+};
 
 use crate::{
     args,
@@ -100,6 +108,12 @@ pub trait Shim {
 
     /// Create the task service object asynchronously.
     async fn create_task_service(&self, publisher: RemotePublisher) -> Self::T;
+
+    #[cfg(feature = "sandbox")]
+    type S: Sandbox + Send + Sync;
+
+    #[cfg(feature = "sandbox")]
+    async fn create_sandbox_service(&self) -> Self::S;
 }
 
 /// Async Shim entry point that must be invoked from tokio `main`.
@@ -177,6 +191,14 @@ where
             let task = shim.create_task_service(publisher).await;
             let task_service = create_task(Arc::new(Box::new(task)));
             let mut server = Server::new().register_service(task_service);
+
+            #[cfg(feature = "sandbox")]
+            {
+                let sandbox = shim.create_sandbox_service().await;
+                let sandbox_service = create_sandbox(Arc::new(Box::new(sandbox)));
+                server = server.register_service(sandbox_service);
+            }
+
             server = server.add_listener(SOCKET_FD)?;
             server = server.set_domain_unix();
             server.start().await?;
@@ -233,6 +255,34 @@ impl ExitSignal {
             }
             notified.await;
         }
+    }
+
+    pub fn exited(&self) -> Exited {
+        let notified = self.notifier.notified();
+        return Exited {
+            notified,
+            sig: &self,
+        };
+    }
+}
+
+pin_project_lite::pin_project! {
+    pub struct Exited<'a> {
+        #[pin]
+        notified: Notified<'a>,
+        sig: &'a ExitSignal,
+    }
+}
+
+impl Future for Exited<'_> {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+        if this.sig.exited.load(Ordering::SeqCst) {
+            return Poll::Ready(());
+        }
+        return this.notified.poll(cx);
     }
 }
 

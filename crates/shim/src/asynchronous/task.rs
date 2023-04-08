@@ -192,8 +192,8 @@ where
         let id = container.id().await;
         let exec_id_opt = req.exec_id().as_option();
         let (pid, exit_status, exited_at) = container.delete(exec_id_opt).await?;
-        self.factory.cleanup(&self.namespace, container).await?;
         if req.exec_id().is_empty() {
+            self.factory.cleanup(&self.namespace, container).await?;
             containers.remove(req.id());
         }
 

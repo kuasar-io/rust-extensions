@@ -33,3 +33,7 @@ pub mod task {
 pub mod fieldpath {
     include!(concat!(env!("OUT_DIR"), "/types/fieldpath.rs"));
 }
+
+pub mod platform {
+    include!(concat!(env!("OUT_DIR"), "/types/platform.rs"));
+}
