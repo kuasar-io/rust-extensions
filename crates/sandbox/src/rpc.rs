@@ -20,7 +20,7 @@ macro_rules! ignore_not_found {
             Ok(x) => Ok(x),
             Err(e) => match e {
                 crate::error::Error::NotFound(_) => Ok(Default::default()),
-                _ => Err(e),
+                _ => Err(tonic::Status::new(tonic::Code::Internal, format!("{}", e))),
             },
         }
     }};
@@ -53,9 +53,22 @@ where
             return Err(tonic::Status::invalid_argument("sandbox id is empty"));
         }
         let base_dir = format!("{}/{}", self.dir, sandbox_data.id);
-        create_dir_all(&*base_dir).await?;
+        create_dir_all(&*base_dir).await.map_err(|e| {
+            tonic::Status::new(
+                tonic::Code::Internal,
+                format!("failed to create sandbox directory, {}", e),
+            )
+        })?;
         let opt = SandboxOption::new(base_dir, sandbox_data);
-        self.sandboxer.create(&*req.sandbox_id, opt).await?;
+        self.sandboxer
+            .create(&*req.sandbox_id, opt)
+            .await
+            .map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Internal,
+                    format!("failed to create sandbox, {}", e),
+                )
+            })?;
         let resp = ControllerCreateResponse {
             sandbox_id: req.sandbox_id.to_string(),
         };
@@ -67,9 +80,23 @@ where
         request: tonic::Request<ControllerStartRequest>,
     ) -> Result<tonic::Response<ControllerStartResponse>, tonic::Status> {
         let req = request.get_ref();
-        self.sandboxer.start(&*req.sandbox_id).await?;
+        self.sandboxer.start(&*req.sandbox_id).await.map_err(|e| {
+            tonic::Status::new(
+                tonic::Code::Internal,
+                format!("failed to start sandbox {}, {}", req.sandbox_id, e),
+            )
+        })?;
 
-        let sandbox_mutex = self.sandboxer.sandbox(&*req.sandbox_id).await?;
+        let sandbox_mutex = self
+            .sandboxer
+            .sandbox(&*req.sandbox_id)
+            .await
+            .map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Internal,
+                    format!("failed to get sandbox {}, {}", req.sandbox_id, e),
+                )
+            })?;
         let sandbox = sandbox_mutex.lock().await;
         let res = match sandbox.get_data() {
             Ok(s) => s,
@@ -97,7 +124,11 @@ where
                     .unwrap_or_default();
                 return Err(tonic::Status::new(
                     tonic::Code::Internal,
-                    format!("sandbox status is {}", status.to_string()),
+                    format!(
+                        "sandbox {} status is {}",
+                        req.sandbox_id,
+                        status.to_string()
+                    ),
                 ));
             }
         };
@@ -133,7 +164,16 @@ where
         request: Request<PrepareRequest>,
     ) -> Result<Response<PrepareResponse>, Status> {
         let req = request.get_ref();
-        let sandbox_mutex = self.sandboxer.sandbox(&*req.sandbox_id).await?;
+        let sandbox_mutex = self
+            .sandboxer
+            .sandbox(&*req.sandbox_id)
+            .await
+            .map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Internal,
+                    format!("failed to get sandbox {}, {}", req.sandbox_id, e),
+                )
+            })?;
         let mut sandbox = sandbox_mutex.lock().await;
         return if req.exec_id.is_empty() {
             let container_data = ContainerData::new(req);
@@ -142,8 +182,24 @@ where
                 container_data, req.sandbox_id
             );
             let opt = ContainerOption::new(container_data);
-            sandbox.append_container(&*req.container_id, opt).await?;
-            let container = sandbox.container(&*req.container_id).await?;
+            sandbox
+                .append_container(&*req.container_id, opt)
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Internal,
+                        format!(
+                            "failed to append container {} to sandbox {}, {}",
+                            req.container_id, req.sandbox_id, e
+                        ),
+                    )
+                })?;
+            let container = sandbox.container(&*req.container_id).await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Internal,
+                    format!("failed to get container {}, {}", req.container_id, e),
+                )
+            })?;
             let data = container.get_data()?;
             let resp = PrepareResponse {
                 bundle: data.bundle.to_string(),
@@ -155,11 +211,24 @@ where
                 "append a process {:?} to container {} of sandbox {}",
                 process_date, req.container_id, req.sandbox_id
             );
-            let container = sandbox.container(&*req.container_id).await?;
+            let container = sandbox.container(&*req.container_id).await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Internal,
+                    format!("failed to get container {}, {}", req.container_id, e),
+                )
+            })?;
             let mut data = container.get_data()?;
             data.processes.push(process_date);
             let opt = ContainerOption::new(data);
-            sandbox.update_container(&*req.container_id, opt).await?;
+            sandbox
+                .update_container(&*req.container_id, opt)
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Internal,
+                        format!("failed to update container {}, {}", req.container_id, e),
+                    )
+                })?;
             Ok(Response::new(PrepareResponse {
                 bundle: "".to_string(),
             }))
@@ -171,7 +240,16 @@ where
         request: Request<PurgeRequest>,
     ) -> Result<Response<PurgeResponse>, Status> {
         let req = request.get_ref();
-        let sandbox_mutex = self.sandboxer.sandbox(&*req.sandbox_id).await?;
+        let sandbox_mutex = self
+            .sandboxer
+            .sandbox(&*req.sandbox_id)
+            .await
+            .map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Internal,
+                    format!("failed to get sandbox {}, {}", req.sandbox_id, e),
+                )
+            })?;
         let mut sandbox = sandbox_mutex.lock().await;
         return if req.exec_id.is_empty() {
             info!(
@@ -185,11 +263,24 @@ where
                 "remove process {} from container {} of sandbox {}",
                 req.exec_id, req.container_id, req.sandbox_id
             );
-            let container = sandbox.container(&*req.container_id).await?;
+            let container = sandbox.container(&*req.container_id).await.map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Internal,
+                    format!("failed to get container {}, {}", req.container_id, e),
+                )
+            })?;
             let mut data = container.get_data()?;
             data.processes.retain(|x| x.id != req.exec_id);
             let opt = ContainerOption::new(data);
-            sandbox.update_container(&*req.container_id, opt).await?;
+            sandbox
+                .update_container(&*req.container_id, opt)
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Internal,
+                        format!("failed to update container {}, {}", req.container_id, e),
+                    )
+                })?;
             Ok(Response::new(PurgeResponse {}))
         };
     }
@@ -218,13 +309,31 @@ where
     ) -> Result<tonic::Response<ControllerWaitResponse>, tonic::Status> {
         let req = request.get_ref();
         let exit_signal = {
-            let sandbox_mutex = self.sandboxer.sandbox(&*req.sandbox_id).await?;
+            let sandbox_mutex = self
+                .sandboxer
+                .sandbox(&*req.sandbox_id)
+                .await
+                .map_err(|e| {
+                    tonic::Status::new(
+                        tonic::Code::Internal,
+                        format!("failed to get sandbox {}, {}", req.sandbox_id, e),
+                    )
+                })?;
             let sandbox = sandbox_mutex.lock().await;
             sandbox.exit_signal().await?
         };
 
         exit_signal.wait().await;
-        let sandbox_mutex = self.sandboxer.sandbox(&*req.sandbox_id).await?;
+        let sandbox_mutex = self
+            .sandboxer
+            .sandbox(&*req.sandbox_id)
+            .await
+            .map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Internal,
+                    format!("failed to get sandbox, {}", e),
+                )
+            })?;
         let sandbox = sandbox_mutex.lock().await;
         let mut wait_resp = ControllerWaitResponse {
             exit_status: 0,
@@ -248,7 +357,16 @@ where
         request: tonic::Request<ControllerStatusRequest>,
     ) -> Result<tonic::Response<ControllerStatusResponse>, tonic::Status> {
         let req = request.get_ref();
-        let sandbox_mutex = self.sandboxer.sandbox(&*req.sandbox_id).await?;
+        let sandbox_mutex = self
+            .sandboxer
+            .sandbox(&*req.sandbox_id)
+            .await
+            .map_err(|e| {
+                tonic::Status::new(
+                    tonic::Code::Internal,
+                    format!("failed to get sandbox {}, {}", req.sandbox_id, e),
+                )
+            })?;
         let sandbox = sandbox_mutex.lock().await;
         // TODO the state should match the definition in containerd
         let (state, pid) = match sandbox.status()? {
