@@ -537,15 +537,6 @@ pub fn to_any(spec: &JsonSpec) -> Result<Any> {
     })
 }
 
-pub(crate) fn process_to_any(spec: &Process) -> crate::Result<Any> {
-    let spec_vec =
-        serde_json::to_vec(spec).map_err(|e| anyhow!("failed to parse sepc to json, {}", e))?;
-    Ok(prost_types::Any {
-        type_url: "types.containerd.io/opencontainers/runtime-spec/1/Process".to_string(),
-        value: spec_vec,
-    })
-}
-
 impl From<&crate::types::Mount> for Mount {
     fn from(m: &crate::types::Mount) -> Self {
         return Self {

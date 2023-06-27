@@ -107,6 +107,7 @@ where
             pid,
             created_at: res.created_at.map(|x| x.into()),
             labels: Default::default(),
+            task_address: res.task_address.clone(),
         };
         Ok(Response::new(resp))
     }
