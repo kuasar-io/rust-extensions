@@ -19,7 +19,8 @@
 use std::{fs, io::Read, path::Path};
 
 use cgroups_rs::{
-    cgroup::get_cgroups_relative_paths_by_pid, hierarchies, Cgroup, CgroupPid, MaxValue, Subsystem,
+    cgroup::get_cgroups_relative_paths_by_pid, cpuacct::CpuAcctController, hierarchies, Cgroup,
+    CgroupPid, MaxValue, Subsystem,
 };
 use containerd_shim_protos::{
     cgroups::metrics::{CPUStat, CPUUsage, MemoryEntry, MemoryStat, Metrics},
@@ -99,11 +100,36 @@ pub fn collect_metrics(pid: u32) -> Result<Metrics> {
     // get container main process cgroup
     let path =
         get_cgroups_relative_paths_by_pid(pid).map_err(other_error!(e, "get process cgroup"))?;
-    let cgroup = Cgroup::load_with_relative_paths(hierarchies::auto(), Path::new("."), path);
+
+    let cgroup = if hierarchies::auto().v2() {
+        if let Some((_, v)) = path.iter().next() {
+            Cgroup::load(hierarchies::auto(), Path::new(v.trim_start_matches('/')))
+        } else {
+            return Err(Error::Other("invalid cgroup path".to_string()));
+        }
+    } else {
+        Cgroup::load_with_relative_paths(hierarchies::auto(), Path::new("."), path)
+    };
+
+    let has_cpuacct: Option<&CpuAcctController> = cgroup.controller_of();
+    let has_cpuacct = has_cpuacct.is_some();
 
     // to make it easy, fill the necessary metrics only.
     for sub_system in Cgroup::subsystems(&cgroup) {
         match sub_system {
+            Subsystem::CpuSet(_) => {
+                // not necessary now
+            }
+            Subsystem::Cpu(cpu_ctr) => {
+                if has_cpuacct {
+                    continue;
+                }
+                let mut cpu_stat = CPUStat::new();
+                let mut cpu_usage = CPUUsage::new();
+                set_cpu_usage(&mut cpu_usage, &cpu_ctr.cpu().stat);
+                cpu_stat.set_usage(cpu_usage);
+                metrics.set_cpu(cpu_stat);
+            }
             Subsystem::CpuAcct(cpuacct_ctr) => {
                 let mut cpu_usage = CPUUsage::new();
                 cpu_usage.set_total(cpuacct_ctr.cpuacct().usage);
@@ -124,6 +150,31 @@ pub fn collect_metrics(pid: u32) -> Result<Metrics> {
         }
     }
     Ok(metrics)
+}
+
+fn set_cpu_usage(cpu_usage: &mut CPUUsage, stat: &String) {
+    let lines: Vec<&str> = stat.lines().collect();
+
+    for line in lines {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+
+        if parts.len() != 2 {
+            continue;
+        }
+
+        match parts[0] {
+            "usage_usec" => {
+                cpu_usage.set_total(parts[1].parse().unwrap());
+            }
+            "user_usec" => {
+                cpu_usage.set_user(parts[1].parse().unwrap());
+            }
+            "system_usec" => {
+                cpu_usage.set_kernel(parts[1].parse().unwrap());
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Update process cgroup limits
