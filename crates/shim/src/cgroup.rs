@@ -182,7 +182,16 @@ pub fn update_resources(pid: u32, resources: &LinuxResources) -> Result<()> {
     // get container main process cgroup
     let path =
         get_cgroups_relative_paths_by_pid(pid).map_err(other_error!(e, "get process cgroup"))?;
-    let cgroup = Cgroup::load_with_relative_paths(hierarchies::auto(), Path::new("."), path);
+
+    let cgroup = if hierarchies::auto().v2() {
+        if let Some((_, v)) = path.iter().next() {
+            Cgroup::load(hierarchies::auto(), Path::new(v.trim_start_matches('/')))
+        } else {
+            return Err(Error::Other("invalid cgroup path".to_string()));
+        }
+    } else {
+        Cgroup::load_with_relative_paths(hierarchies::auto(), Path::new("."), path)
+    };
 
     for sub_system in Cgroup::subsystems(&cgroup) {
         match sub_system {
