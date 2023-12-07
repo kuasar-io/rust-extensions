@@ -164,13 +164,13 @@ fn set_cpu_usage(cpu_usage: &mut CPUUsage, stat: &String) {
 
         match parts[0] {
             "usage_usec" => {
-                cpu_usage.set_total(parts[1].parse().unwrap());
+                cpu_usage.set_total(parts[1].parse().unwrap_or_default());
             }
             "user_usec" => {
-                cpu_usage.set_user(parts[1].parse().unwrap());
+                cpu_usage.set_user(parts[1].parse().unwrap_or_default());
             }
             "system_usec" => {
-                cpu_usage.set_kernel(parts[1].parse().unwrap());
+                cpu_usage.set_kernel(parts[1].parse().unwrap_or_default());
             }
             _ => {}
         }
