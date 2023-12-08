@@ -70,13 +70,21 @@ pub struct Linux {
     pub devices: Vec<LinuxDevice>,
     #[serde(default)]
     pub seccomp: Option<LinuxSeccomp>,
-    #[serde(rename = "rootfsPropagation", default)]
+    #[serde(
+        rename = "rootfsPropagation",
+        skip_serializing_if = "String::is_empty",
+        default
+    )]
     pub rootfs_propagation: String,
     #[serde(rename = "maskedPaths", default)]
     pub masked_path: Vec<String>,
     #[serde(rename = "readonlyPaths", default)]
     pub readonly_path: Vec<String>,
-    #[serde(rename = "mountLabel", default)]
+    #[serde(
+        rename = "mountLabel",
+        skip_serializing_if = "String::is_empty",
+        default
+    )]
     pub mount_label: String,
     #[serde(rename = "intelRdt")]
     pub intel_rdt: Option<LinuxIntelRdt>,
@@ -242,7 +250,7 @@ pub struct Files {
 pub struct LinuxNamespace {
     #[serde(default)]
     pub r#type: String,
-    #[serde(default)]
+    #[serde(skip_serializing_if = "String::is_empty", default)]
     pub path: String,
 }
 
@@ -370,7 +378,11 @@ pub struct Process {
     pub rlimits: Vec<POSIXRlimit>,
     #[serde(rename = "noNewPrivileges", default)]
     pub no_new_privileges: bool,
-    #[serde(rename = "apparmorProfile", default)]
+    #[serde(
+        rename = "apparmorProfile",
+        skip_serializing_if = "String::is_empty",
+        default
+    )]
     pub apparmor_profile: String,
     #[serde(rename = "oomScoreAdj")]
     pub oom_score_adj: Option<i32>,
