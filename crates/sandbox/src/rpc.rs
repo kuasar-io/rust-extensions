@@ -48,7 +48,7 @@ where
     ) -> Result<Response<ControllerCreateResponse>, Status> {
         let req = request.get_ref();
         let sandbox_data: SandboxData = SandboxData::new(req);
-        debug!("create a new sandbox {:?}", sandbox_data);
+        info!("create a new sandbox {:?}", sandbox_data);
         if sandbox_data.id.is_empty() {
             return Err(tonic::Status::invalid_argument("sandbox id is empty"));
         }
@@ -67,15 +67,16 @@ where
         request: tonic::Request<ControllerStartRequest>,
     ) -> Result<tonic::Response<ControllerStartResponse>, tonic::Status> {
         let req = request.get_ref();
-        self.sandboxer.start(&*req.sandbox_id).await?;
+        info!("start sandbox {}", req.sandbox_id);
+        self.sandboxer.start(&req.sandbox_id).await?;
 
-        let sandbox_mutex = self.sandboxer.sandbox(&*req.sandbox_id).await?;
+        let sandbox_mutex = self.sandboxer.sandbox(&req.sandbox_id).await?;
         let sandbox = sandbox_mutex.lock().await;
         let res = match sandbox.get_data() {
             Ok(s) => s,
             Err(e) => {
                 self.sandboxer
-                    .stop(&*req.sandbox_id, true)
+                    .stop(&req.sandbox_id, true)
                     .await
                     .unwrap_or_default();
                 return Err(e.into());
@@ -85,14 +86,14 @@ where
             Ok(SandboxStatus::Running(pid)) => pid,
             Err(e) => {
                 self.sandboxer
-                    .stop(&*req.sandbox_id, true)
+                    .stop(&req.sandbox_id, true)
                     .await
                     .unwrap_or_default();
                 return Err(e.into());
             }
             Ok(status) => {
                 self.sandboxer
-                    .stop(&*req.sandbox_id, true)
+                    .stop(&req.sandbox_id, true)
                     .await
                     .unwrap_or_default();
                 return Err(tonic::Status::new(
@@ -109,6 +110,7 @@ where
             labels: Default::default(),
             task_address: res.task_address.clone(),
         };
+        info!("start sandbox {:?} returns successfully", resp);
         Ok(Response::new(resp))
     }
 
@@ -210,6 +212,7 @@ where
         let req = request.get_ref();
         info!("stop sandbox {}", req.sandbox_id);
         ignore_not_found!(self.sandboxer.stop(&*req.sandbox_id, true).await)?;
+        info!("stop sandbox {} returns successfully", req.sandbox_id);
         Ok(Response::new(ControllerStopResponse {}))
     }
 
@@ -241,6 +244,7 @@ where
             wait_resp.exit_status = code;
             wait_resp.exited_at = Some(ts);
         }
+        info!("wait sandbox {} returns {:?}", req.sandbox_id, wait_resp);
         Ok(Response::new(wait_resp))
     }
 
@@ -266,6 +270,7 @@ where
                 data.exited_at.map(|x| x.into()),
             )
         };
+        debug!("status sandbox {} returns {:?}", req.sandbox_id, state);
         // TODO add verbose support
         return Ok(Response::new(ControllerStatusResponse {
             sandbox_id: req.sandbox_id.to_string(),
