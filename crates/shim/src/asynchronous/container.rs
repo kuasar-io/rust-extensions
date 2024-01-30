@@ -97,7 +97,7 @@ where
         let process = self.get_process(exec_id)?;
         let mut resp = process.state().await?;
         resp.bundle = self.bundle.to_string();
-        debug!("container state: {:?}", resp);
+        debug!("container {} state {:?}", resp.id(), resp.status());
         Ok(resp)
     }
 

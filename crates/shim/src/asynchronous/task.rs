@@ -152,7 +152,7 @@ where
     }
 
     async fn start(&self, _ctx: &TtrpcContext, req: StartRequest) -> TtrpcResult<StartResponse> {
-        info!("Start request for {:?}", &req);
+        info!("Start request for {} {}", req.id(), req.exec_id());
         let mut container = self.get_container(req.id()).await?;
         let pid = container.start(req.exec_id.as_str().as_option()).await?;
 
@@ -176,12 +176,12 @@ where
             .await;
         };
 
-        info!("Start request for {:?} returns pid {}", req, resp.pid());
+        info!("Start request for {} {} returns pid {}", req.id(), req.exec_id(), resp.pid());
         Ok(resp)
     }
 
     async fn delete(&self, _ctx: &TtrpcContext, req: DeleteRequest) -> TtrpcResult<DeleteResponse> {
-        info!("Delete request for {:?}", &req);
+        info!("Delete request for {} {}", req.id(), req.exec_id());
         let mut containers = self.containers.lock().await;
         let container = containers.get_mut(req.id()).ok_or_else(|| {
             ttrpc::Error::RpcStatus(ttrpc::get_status(
@@ -197,6 +197,11 @@ where
             containers.remove(req.id());
         }
 
+        let exited_at_display = if let Some(time) = &exited_at {
+            format!("{}", time)
+        } else {
+            String::new()
+        };
         let ts = convert_to_timestamp(exited_at);
         self.send_event(TaskDelete {
             container_id: id,
@@ -212,19 +217,20 @@ where
         resp.set_pid(pid as u32);
         resp.set_exit_status(exit_status as u32);
         info!(
-            "Delete request for {} {} returns {:?}",
+            "Delete request for {} {} returns pid {}, exit_code {}, exit_at {}",
             req.id(),
             req.exec_id(),
-            resp
+            resp.pid(),
+            resp.exit_status(),
+            exited_at_display,
         );
         Ok(resp)
     }
 
     async fn pids(&self, _ctx: &TtrpcContext, req: PidsRequest) -> TtrpcResult<PidsResponse> {
-        debug!("Pids request for {:?}", req);
+        debug!("Pids request for {}", req.id());
         let container = self.get_container(req.id()).await?;
         let processes = container.all_processes().await?;
-        debug!("Pids request for {:?} returns successfully", req);
         Ok(PidsResponse {
             processes,
             ..Default::default()
@@ -232,17 +238,26 @@ where
     }
 
     async fn kill(&self, _ctx: &TtrpcContext, req: KillRequest) -> TtrpcResult<Empty> {
-        info!("Kill request for {:?}", req);
+        info!("Kill request for {} {} with signal {} and all {}",
+            req.id(),
+            req.exec_id(),
+            req.signal(),
+            req.all(),
+        );
         let mut container = self.get_container(req.id()).await?;
         container
             .kill(req.exec_id().as_option(), req.signal, req.all)
             .await?;
-        info!("Kill request for {:?} returns successfully", req);
+        info!("Kill request for {} {} returns successfully", req.id(), req.exec_id());
         Ok(Empty::new())
     }
 
     async fn exec(&self, _ctx: &TtrpcContext, req: ExecProcessRequest) -> TtrpcResult<Empty> {
-        info!("Exec request for {:?}", req);
+        info!("Exec request for container {} with exec_id {} and terminal {}",
+            req.id(),
+            req.exec_id(),
+            req.terminal(),
+        );
         let exec_id = req.exec_id().to_string();
         let mut container = self.get_container(req.id()).await?;
         container.exec(req).await?;
@@ -260,7 +275,7 @@ where
     async fn resize_pty(&self, _ctx: &TtrpcContext, req: ResizePtyRequest) -> TtrpcResult<Empty> {
         debug!(
             "Resize pty request for container {}, exec_id: {}",
-            &req.id, &req.exec_id
+            req.id(), req.exec_id()
         );
         let mut container = self.get_container(req.id()).await?;
         container
@@ -299,7 +314,7 @@ where
     }
 
     async fn wait(&self, _ctx: &TtrpcContext, req: WaitRequest) -> TtrpcResult<WaitResponse> {
-        info!("Wait request for {:?}", req);
+        info!("Wait request for {} {}", req.id() ,req.exec_id());
         let exec_id = req.exec_id.as_str().as_option();
         let wait_rx = {
             let mut container = self.get_container(req.id()).await?;
@@ -308,7 +323,11 @@ where
                 let mut resp = WaitResponse::new();
                 resp.exit_status = state.exit_status;
                 resp.exited_at = state.exited_at;
-                info!("Wait request for {:?} returns {:?}", req, &resp);
+                info!("Wait request for {} {} returns {}",
+                    req.id(),
+                    req.exec_id(),
+                    resp.exit_status(),
+                );
                 return Ok(resp);
             }
             container.wait_channel(req.exec_id().as_option()).await?
@@ -322,12 +341,16 @@ where
         resp.set_exit_status(code as u32);
         let ts = convert_to_timestamp(exited_at);
         resp.set_exited_at(ts);
-        info!("Wait request for {:?} returns {:?}", req, &resp);
+        info!("Wait request for {} {} returns {}",
+            req.id(),
+            req.exec_id(),
+            resp.exit_status(),
+        );
         Ok(resp)
     }
 
     async fn stats(&self, _ctx: &TtrpcContext, req: StatsRequest) -> TtrpcResult<StatsResponse> {
-        debug!("Stats request for {:?}", req);
+        debug!("Stats request for {}", req.id());
         let container = self.get_container(req.id()).await?;
         let stats = container.stats().await?;
 
@@ -341,7 +364,7 @@ where
         _ctx: &TtrpcContext,
         req: ConnectRequest,
     ) -> TtrpcResult<ConnectResponse> {
-        info!("Connect request for {:?}", req);
+        info!("Connect request for {}", req.id());
         let container = self.get_container(req.id()).await?;
 
         Ok(ConnectResponse {
@@ -351,8 +374,8 @@ where
         })
     }
 
-    async fn shutdown(&self, _ctx: &TtrpcContext, _req: ShutdownRequest) -> TtrpcResult<Empty> {
-        debug!("Shutdown request");
+    async fn shutdown(&self, _ctx: &TtrpcContext, req: ShutdownRequest) -> TtrpcResult<Empty> {
+        info!("Shutdown request for {}", req.id());
         let containers = self.containers.lock().await;
         if containers.len() > 0 {
             return Ok(Empty::new());
