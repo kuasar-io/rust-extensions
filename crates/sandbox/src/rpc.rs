@@ -1,4 +1,4 @@
-use log::{debug, info};
+use log::{debug, info, warn};
 use prost_types::Timestamp;
 use time::OffsetDateTime;
 use tokio::fs::{create_dir_all, remove_dir_all};
@@ -54,8 +54,13 @@ where
         }
         let base_dir = format!("{}/{}", self.dir, sandbox_data.id);
         create_dir_all(&*base_dir).await?;
-        let opt = SandboxOption::new(base_dir, sandbox_data);
-        self.sandboxer.create(&*req.sandbox_id, opt).await?;
+        let opt = SandboxOption::new(base_dir.clone(), sandbox_data);
+        if let Err(e) = self.sandboxer.create(&*req.sandbox_id, opt).await {
+            if let Err(re) = remove_dir_all(base_dir).await {
+                warn!("roll back in sandbox create rmdir: {}", re);
+            }
+            return Err(e.into());
+        }
         let resp = ControllerCreateResponse {
             sandbox_id: req.sandbox_id.to_string(),
         };
