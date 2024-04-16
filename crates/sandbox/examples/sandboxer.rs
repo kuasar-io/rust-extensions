@@ -153,7 +153,7 @@ async fn main() {
     let sandboxer = ExampleSandboxer {
         sandboxes: Default::default(),
     };
-    run("io.containerd.sandboxer.example.v1", sandboxer)
+    run("io.containerd.sandboxer.example.v1", "", "", sandboxer)
         .await
         .unwrap();
 }
