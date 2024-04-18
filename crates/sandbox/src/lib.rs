@@ -2,6 +2,7 @@ use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
 
+use anyhow::Context;
 use async_trait::async_trait;
 use futures::TryFutureExt;
 use log::info;
@@ -120,23 +121,21 @@ pub trait Sandbox: Sync + Send {
     fn get_data(&self) -> Result<SandboxData>;
 }
 
-pub async fn run<S>(name: &str, sandboxer: S) -> Result<()>
+pub async fn run<S>(name: &str, listening_addr: &str, working_dir: &str, sandboxer: S) -> Result<()>
 where
     S: Sandboxer + Sync + Send + 'static,
 {
     info!("start sandbox plugin: {}", name);
-    let os_args: Vec<_> = std::env::args_os().collect();
-    let flags = args::parse(&os_args[1..])?;
-    if Path::new(&*flags.listen).exists() {
-        tokio::fs::remove_file(&*flags.listen).await.unwrap();
+    if Path::new(listening_addr).exists() {
+        tokio::fs::remove_file(listening_addr).await?;
     }
 
-    if !Path::new(&*flags.dir).exists() {
-        tokio::fs::create_dir_all(&*flags.dir).await.unwrap();
+    if !Path::new(working_dir).exists() {
+        tokio::fs::create_dir_all(working_dir).await?;
     }
 
     let incoming = {
-        let uds = UnixListener::bind(&*flags.listen).unwrap();
+        let uds = UnixListener::bind(listening_addr)?;
         async_stream::stream! {
             loop {
                 let item = uds.accept().map_ok(|(st, _)|unix::UnixStream(st)).await;
@@ -145,13 +144,13 @@ where
         }
     };
 
-    let sandbox_controller = SandboxController::new(flags.dir, sandboxer);
+    let sandbox_controller = SandboxController::new(working_dir.to_string(), sandboxer);
     let sandbox_server = ControllerServer::new(sandbox_controller);
     Server::builder()
         .add_service(sandbox_server)
         .serve_with_incoming(incoming)
         .await
-        .unwrap();
+        .with_context(|| format!("gRPC server"))?;
 
     Ok(())
 }
