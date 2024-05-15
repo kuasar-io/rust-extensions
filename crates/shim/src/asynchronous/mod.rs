@@ -66,6 +66,7 @@ use crate::{
     Config, StartOpts, SOCKET_FD, TTRPC_ADDRESS,
 };
 
+pub mod cgroup_memory;
 pub mod console;
 pub mod container;
 pub mod monitor;

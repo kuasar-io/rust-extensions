@@ -28,10 +28,11 @@ use containerd_shim_protos::{
     ttrpc,
     ttrpc::r#async::TtrpcContext,
 };
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use oci_spec::runtime::LinuxResources;
 use tokio::sync::{mpsc::Sender, MappedMutexGuard, Mutex, MutexGuard};
 
+use crate::asynchronous::cgroup_memory::monitor_oom;
 use crate::{
     api::{
         CreateTaskRequest, CreateTaskResponse, DeleteRequest, Empty, ExecProcessRequest,
@@ -166,6 +167,10 @@ where
                 ..Default::default()
             })
             .await;
+            #[cfg(target_os = "linux")]
+            if let Err(e) = monitor_oom(&req.id, resp.pid, self.tx.clone()).await {
+                error!("monitor_oom failed: {:?}.", e);
+            }
         } else {
             self.send_event(TaskExecStarted {
                 container_id: req.id.to_string(),
