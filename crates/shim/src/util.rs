@@ -16,7 +16,7 @@
 
 use std::{
     env,
-    os::unix::io::RawFd,
+    os::{fd::IntoRawFd, unix::io::RawFd},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -113,7 +113,7 @@ pub fn connect(address: impl AsRef<str>) -> Result<RawFd> {
     #[cfg(not(target_os = "linux"))]
     const SOCK_CLOEXEC: SockFlag = SockFlag::empty();
 
-    let fd = socket(AddressFamily::Unix, SockType::Stream, SOCK_CLOEXEC, None)?;
+    let fd = socket(AddressFamily::Unix, SockType::Stream, SOCK_CLOEXEC, None)?.into_raw_fd();
 
     // MacOS doesn't support atomic creation of a socket descriptor with `SOCK_CLOEXEC` flag,
     // so there is a chance of leak if fork + exec happens in between of these calls.

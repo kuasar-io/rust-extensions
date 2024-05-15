@@ -23,7 +23,7 @@ go-flag = "0.1.0"
 thiserror = "1.0"
 log = { version = "0.4", features = ["std"] }
 libc = "0.2.95"
-nix = "0.25"
+nix = { version = "0.28.0", features = ["mount", "socket", "ioctl", "signal", "fs", "event"] }
 command-fds = "0.2.1"
 lazy_static = "1.4.0"
 time = { version = "0.3.7", features = ["serde", "std"] }
@@ -37,7 +37,7 @@ prctl = "1.0.0"
 page_size = "0.4.2"
 regex = "1"
 
-containerd-shim-protos = { path = "../shim-protos", version = "0.2.0" }
+containerd-shim-protos = { path = "../shim-protos", version = "0.2.0", features = ["async"] }
 
 async-trait = { version = "0.1.51", optional = true }
 tokio = { version = "1.17.0", features = ["full"], optional = true }
