@@ -1,3 +1,5 @@
+use std::ops::DerefMut;
+
 use log::{debug, info, warn};
 use prost_types::Timestamp;
 use time::OffsetDateTime;
@@ -6,7 +8,7 @@ use tonic::{Request, Response, Status};
 
 use crate::api::sandbox::v1::controller_server::Controller;
 use crate::api::sandbox::v1::*;
-use crate::data::{ContainerData, ProcessData, SandboxData};
+use crate::data::{ContainerData, ProcessData, ProcessResource, SandboxData, TaskResources};
 use crate::{Container, ContainerOption, Sandbox, SandboxOption, SandboxStatus, Sandboxer};
 
 use crate::utils::cleanup_mounts;
@@ -113,7 +115,8 @@ where
             pid,
             created_at: res.created_at.map(|x| x.into()),
             labels: Default::default(),
-            task_address: res.task_address.clone(),
+            address: res.task_address.clone(),
+            version: 2,
         };
         info!("start sandbox {:?} returns successfully", resp);
         Ok(Response::new(resp))
@@ -136,78 +139,49 @@ where
         Ok(Response::new(resp))
     }
 
-    async fn prepare(
+    async fn update(
         &self,
-        request: Request<PrepareRequest>,
-    ) -> Result<Response<PrepareResponse>, Status> {
+        request: Request<ControllerUpdateRequest>,
+    ) -> Result<Response<ControllerUpdateResponse>, Status> {
         let req = request.get_ref();
-        let sandbox_mutex = self.sandboxer.sandbox(&*req.sandbox_id).await?;
-        let mut sandbox = sandbox_mutex.lock().await;
-        return if req.exec_id.is_empty() {
-            let container_data = ContainerData::new(req);
-            info!(
-                "append a container {:?} to sandbox {}",
-                container_data, req.sandbox_id
-            );
-            let opt = ContainerOption::new(container_data);
-            sandbox.append_container(&*req.container_id, opt).await?;
-            let container = sandbox.container(&*req.container_id).await?;
-            let data = container.get_data()?;
-            let resp = PrepareResponse {
-                bundle: data.bundle.to_string(),
-            };
-            Ok(Response::new(resp))
+        info!("update resource of sandbox {}", req.sandbox_id);
+        // only handle extensions.tasks update
+        if !req.fields.iter().any(|x| x == "extensions.tasks") {
+            warn!("only support updating extensions.tasks");
+            return Ok(Response::new(ControllerUpdateResponse {}));
+        }
+        let (tasks_any, tasks) = if let Some(sb) = &req.sandbox {
+            if let Some(a) = sb.extensions.get("tasks") {
+                let tasks = serde_json::from_slice(a.value.as_slice()).map_err(|e| {
+                    Status::invalid_argument(format!("failed to unmarshal tasks: {}", e))
+                })?;
+                let ta = crate::data::Any {
+                    type_url: a.type_url.clone(),
+                    value: a.value.clone(),
+                };
+                (ta, tasks)
+            } else {
+                return Err(Status::invalid_argument(
+                    "no tasks key in sandbox extensions when update",
+                ))?;
+            }
         } else {
-            let process_date = ProcessData::new(req);
-            info!(
-                "append a process {:?} to container {} of sandbox {}",
-                process_date, req.container_id, req.sandbox_id
-            );
-            let container = sandbox.container(&*req.container_id).await?;
-            let mut data = container.get_data()?;
-            data.processes.push(process_date);
-            let opt = ContainerOption::new(data);
-            sandbox.update_container(&*req.container_id, opt).await?;
-            Ok(Response::new(PrepareResponse {
-                bundle: "".to_string(),
-            }))
+            return Err(Status::invalid_argument("sandbox is none when update"))?;
         };
-    }
 
-    async fn purge(
-        &self,
-        request: Request<PurgeRequest>,
-    ) -> Result<Response<PurgeResponse>, Status> {
-        let req = request.get_ref();
-        let sandbox_mutex = self.sandboxer.sandbox(&*req.sandbox_id).await?;
-        let mut sandbox = sandbox_mutex.lock().await;
-        return if req.exec_id.is_empty() {
-            info!(
-                "remove container {} from sandbox {}",
-                req.container_id, req.sandbox_id
-            );
-            sandbox.remove_container(&*req.container_id).await?;
-            Ok(Response::new(PurgeResponse {}))
-        } else {
-            info!(
-                "remove process {} from container {} of sandbox {}",
-                req.exec_id, req.container_id, req.sandbox_id
-            );
-            let container = sandbox.container(&*req.container_id).await?;
-            let mut data = container.get_data()?;
-            data.processes.retain(|x| x.id != req.exec_id);
-            let opt = ContainerOption::new(data);
-            sandbox.update_container(&*req.container_id, opt).await?;
-            Ok(Response::new(PurgeResponse {}))
+        let mut data = {
+            let sandbox_mutex = self.sandboxer.sandbox(&*req.sandbox_id).await?;
+            let mut sandbox = sandbox_mutex.lock().await;
+            let data = sandbox.get_data()?;
+            let old_tasks = data.task_resources()?;
+            update_resources(&req.sandbox_id, sandbox.deref_mut(), tasks, old_tasks).await?;
+            data
         };
-    }
-
-    async fn update_resources(
-        &self,
-        _request: Request<UpdateResourcesRequest>,
-    ) -> Result<Response<UpdateResourcesResponse>, Status> {
-        // TODO support update resource
-        return Ok(Response::new(UpdateResourcesResponse {}));
+        
+        data.extensions.insert("tasks".to_string(), tasks_any);
+        self.sandboxer.update(&req.sandbox_id, data).await?;
+        info!("update sandbox {} successfully", req.sandbox_id);
+        Ok(Response::new(ControllerUpdateResponse {}))
     }
 
     async fn stop(
@@ -267,12 +241,12 @@ where
             SandboxStatus::Stopped(_, _) => (SANDBOX_STATUS_NOTREADY.to_string(), 0),
             SandboxStatus::Paused => (SANDBOX_STATUS_NOTREADY.to_string(), 0),
         };
-        let (task_address, created_at, exited_at) = {
+        let (created_at, exited_at, address) = {
             let data = sandbox.get_data()?;
             (
-                data.task_address,
                 data.created_at.map(|x| x.into()),
                 data.exited_at.map(|x| x.into()),
+                data.task_address
             )
         };
         debug!("status sandbox {} returns {:?}", req.sandbox_id, state);
@@ -281,11 +255,12 @@ where
             sandbox_id: req.sandbox_id.to_string(),
             pid,
             state,
-            task_address,
             info: Default::default(),
             created_at,
             exited_at,
             extra: None,
+            address: address,
+            version: 2,
         }));
     }
 
@@ -302,4 +277,110 @@ where
         remove_dir_all(&*base_dir).await.unwrap_or_default();
         return Ok(Response::new(ControllerShutdownResponse {}));
     }
+
+    async fn metrics(
+        &self,
+        _request: Request<ControllerMetricsRequest>,
+    ) -> Result<Response<ControllerMetricsResponse>, Status> {
+        let resp = ControllerMetricsResponse { metrics: None };
+        return Ok(Response::new(resp));
+    }
+}
+
+async fn update_resources<S>(
+    sandbox_id: &str,
+    sb: &mut S,
+    tasks: TaskResources,
+    old_tasks: TaskResources,
+) -> Result<(), Status>
+where
+    S: Sandbox,
+{
+    for t in tasks.tasks.iter() {
+        let mut exist = false;
+        for ot in old_tasks.tasks.iter() {
+            if t.task_id == ot.task_id {
+                exist = true;
+                update_process_resource(sandbox_id, sb, &t.task_id, &t.processes, &ot.processes)
+                    .await?;
+            }
+        }
+        if !exist {
+            let container_data = ContainerData::new(t);
+            info!(
+                "append a container {:?} to sandbox {}",
+                container_data, sandbox_id
+            );
+            let opt: ContainerOption = ContainerOption::new(container_data);
+            sb.append_container(&t.task_id, opt).await?;
+        }
+    }
+    for ot in old_tasks.tasks.iter() {
+        let mut exist = false;
+        for t in tasks.tasks.iter() {
+            if ot.task_id == t.task_id {
+                exist = true;
+            }
+        }
+        if !exist {
+            info!(
+                "remove container {} from sandbox {}",
+                ot.task_id, sandbox_id
+            );
+            sb.remove_container(&ot.task_id).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn update_process_resource<S>(
+    sandbox_id: &str,
+    sb: &mut S,
+    task_id: &str,
+    processes: &Vec<ProcessResource>,
+    old_processes: &Vec<ProcessResource>,
+) -> Result<(), Status>
+where
+    S: Sandbox,
+{
+    for p in processes.iter() {
+        let mut exist = false;
+        for op in old_processes.iter() {
+            if p.exec_id == op.exec_id {
+                exist = true;
+            }
+        }
+        if !exist {
+            let process_date = ProcessData::new(p);
+            info!(
+                "append a process {:?} to container {} of sandbox {}",
+                process_date, task_id, sandbox_id
+            );
+            let container = sb.container(task_id).await?;
+            let mut data = container.get_data()?;
+            data.processes.push(process_date);
+            let opt = ContainerOption::new(data);
+            sb.update_container(task_id, opt).await?;
+        }
+    }
+    for op in old_processes.iter() {
+        let mut exist = false;
+        for p in processes.iter() {
+            if op.exec_id == p.exec_id {
+                exist = true;
+            }
+        }
+        if !exist {
+            info!(
+                "remove process {} from container {} of sandbox {}",
+                op.exec_id, task_id, sandbox_id
+            );
+            let container = sb.container(task_id).await?;
+            let mut data = container.get_data()?;
+            data.processes.retain(|x| x.id != op.exec_id);
+            let opt = ContainerOption::new(data);
+            sb.update_container(task_id, opt).await?;
+        }
+    }
+    Ok(())
 }
