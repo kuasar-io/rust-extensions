@@ -27,6 +27,7 @@ pub mod rpc;
 pub mod signal;
 pub mod spec;
 pub mod utils;
+pub mod base64;
 
 /// Generated GRPC apis.
 pub mod api {
@@ -103,6 +104,7 @@ pub trait Sandboxer {
     type Sandbox: Sandbox + Send + Sync;
     async fn create(&self, id: &str, s: SandboxOption) -> Result<()>;
     async fn start(&self, id: &str) -> Result<()>;
+    async fn update(&self, id: &str, s: SandboxData) -> Result<()>;
     async fn sandbox(&self, id: &str) -> Result<Arc<Mutex<Self::Sandbox>>>;
     async fn stop(&self, id: &str, force: bool) -> Result<()>;
     async fn delete(&self, id: &str) -> Result<()>;

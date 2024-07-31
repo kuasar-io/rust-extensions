@@ -2,12 +2,13 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 
 use log::warn;
+use prost::Message;
 use serde::Deserialize;
 use serde::Serialize;
-use prost::Message;
+use tonic::Status;
 
-use crate::PodSandboxConfig;
 use crate::spec::{JsonSpec, Mount, Process};
+use crate::PodSandboxConfig;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SandboxData {
@@ -25,12 +26,15 @@ pub struct SandboxData {
 
 impl SandboxData {
     pub fn new(req: &crate::api::sandbox::v1::ControllerCreateRequest) -> Self {
-        let config = req.options.as_ref().and_then(|x| {
+        let config: Option<PodSandboxConfig> = req.options.as_ref().and_then(|x| {
             match PodSandboxConfig::decode(&*x.value) {
-                Ok(c) => { Some(c) }
+                Ok(c) => Some(c),
                 Err(e) => {
-                    warn!("failed to parse container spec {} of {} from request, {}",
-                        String::from_utf8_lossy(x.value.as_slice()),req.sandbox_id, e
+                    warn!(
+                        "failed to parse container spec {} of {} from request, {}",
+                        String::from_utf8_lossy(x.value.as_slice()),
+                        req.sandbox_id,
+                        e
                     );
                     None
                 }
@@ -46,6 +50,14 @@ impl SandboxData {
             //     }
             // }
         });
+        let extensions = if let Some(sb) = &req.sandbox {
+            sb.extensions
+                .iter()
+                .map(|(k, v)| (k.clone(), Any::from(v)))
+                .collect()
+        } else {
+            Default::default()
+        };
         Self {
             id: req.sandbox_id.to_string(),
             spec: None,
@@ -56,8 +68,18 @@ impl SandboxData {
             netns: req.netns_path.to_string(),
             started_at: None,
             exited_at: None,
-            extensions: Default::default(),
+            extensions: extensions,
         }
+    }
+
+    pub fn task_resources(&self) -> Result<TaskResources, Status> {
+        let mut tasks = TaskResources {tasks: vec![]};
+        if let Some(a) = self.extensions.get("tasks") {
+            tasks = serde_json::from_slice(a.value.as_slice()).map_err(|e| {
+                Status::invalid_argument(format!("failed to unmarshal old tasks {}", e))
+            })?;
+        }
+        Ok(tasks)
     }
 }
 
@@ -98,28 +120,16 @@ pub struct ContainerData {
 }
 
 impl ContainerData {
-    pub fn new(req: &crate::api::sandbox::v1::PrepareRequest) -> Self {
-        let spec = req.spec.as_ref().and_then(|x| {
-            match serde_json::from_slice::<JsonSpec>(x.value.as_slice()) {
-                Ok(s) => Some(s),
-                Err(e) => {
-                    warn!(
-                        "failed to parse container spec of {} from request, {}",
-                        req.container_id, e
-                    );
-                    None
-                }
-            }
-        });
+    pub fn new(req: &crate::data::TaskResource) -> Self {
         Self {
-            id: req.container_id.to_string(),
-            spec,
-            rootfs: req.rootfs.iter().map(Mount::from).collect(),
+            id: req.task_id.to_string(),
+            spec: req.spec.clone(),
+            rootfs: req.rootfs.clone(),
             io: Some(Io {
                 stdin: req.stdin.to_string(),
                 stdout: req.stdout.to_string(),
                 stderr: req.stderr.to_string(),
-                terminal: req.terminal,
+                terminal: false,
             }),
             processes: vec![],
             bundle: "".to_string(),
@@ -145,21 +155,55 @@ pub struct ProcessData {
     pub extra: HashMap<String, Any>,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TaskResources {
+    #[serde(default)]
+    pub tasks: Vec<TaskResource>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct TaskResource {
+    #[serde(default)]
+    pub task_id: String,
+    #[serde(default)]
+    pub spec: Option<JsonSpec>,
+    #[serde(default)]
+    pub rootfs: Vec<Mount>,
+    #[serde(default)]
+    pub stdin: String,
+    #[serde(default)]
+    pub stdout: String,
+    #[serde(default)]
+    pub stderr: String,
+    #[serde(default)]
+    pub processes: Vec<ProcessResource>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ProcessResource {
+    #[serde(default)]
+    pub exec_id: String,
+    #[serde(default)]
+    pub spec: Option<Process>,
+    #[serde(default)]
+    pub stdin: String,
+    #[serde(default)]
+    pub stdout: String,
+    #[serde(default)]
+    pub stderr: String,
+}
+
 impl ProcessData {
-    pub fn new(req: &crate::api::sandbox::v1::PrepareRequest) -> Self {
-        let ps = req
-            .spec
-            .as_ref()
-            .and_then(|x| serde_json::from_slice::<Process>(x.value.as_slice()).ok());
+    pub fn new(req: &crate::data::ProcessResource) -> Self {
         Self {
             id: req.exec_id.to_string(),
             io: Some(Io {
                 stdin: req.stdin.to_string(),
                 stdout: req.stdout.to_string(),
                 stderr: req.stderr.to_string(),
-                terminal: req.terminal,
+                terminal: false,
             }),
-            process: ps,
+            process: req.spec.clone(),
             extra: Default::default(),
         }
     }
@@ -168,6 +212,7 @@ impl ProcessData {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Any {
     pub type_url: String,
+    #[serde(with="crate::base64")]
     pub value: Vec<u8>,
 }
 
@@ -176,6 +221,15 @@ impl From<prost_types::Any> for Any {
         Self {
             type_url: proto.type_url,
             value: proto.value,
+        }
+    }
+}
+
+impl From<&prost_types::Any> for Any {
+    fn from(proto: &prost_types::Any) -> Self {
+        Self {
+            type_url: proto.type_url.clone(),
+            value: proto.value.clone(),
         }
     }
 }
