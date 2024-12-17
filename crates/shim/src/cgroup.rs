@@ -114,6 +114,39 @@ pub fn collect_metrics(pid: u32) -> Result<Metrics> {
     // to make it easy, fill the necessary metrics only.
     for sub_system in Cgroup::subsystems(&cgroup) {
         match sub_system {
+            Subsystem::Pid(pid_ctr) => {
+                let mut pid_stat = metrics.pids.take().unwrap_or_default();
+                pid_stat.current = pid_ctr.get_pid_current().unwrap_or_default();
+                match pid_ctr.get_pid_max().unwrap_or_default() {
+                    MaxValue::Max => pid_stat.limit = u64::MAX,
+                    MaxValue::Value(i) => pid_stat.limit = i as u64,
+                }
+                metrics.set_pids(pid_stat);
+            }
+            Subsystem::BlkIo(blkio_ctr) => {
+                let mut pid_stat = metrics.blkio.take().unwrap_or_default();
+                let mut io_service_bytes_recursive: Vec<BlkIOEntry> = Vec::new();
+                let blkio = blkio_ctr.blkio().io_service_bytes_recursive;
+                for data in blkio.iter() {
+                    if data.read != 0 {
+                        let mut entry = BlkIOEntry::new();
+                        entry.major = data.major as u64;
+                        entry.minor = data.minor as u64;
+                        entry.op = String::from("read");
+                        entry.value = data.read;
+                        pid_stat.io_service_bytes_recursive.push(entry);
+                    }
+                    if data.write != 0 {
+                        let mut entry = BlkIOEntry::new();
+                        entry.major = data.major as u64;
+                        entry.minor = data.minor as u64;
+                        entry.op = String::from("write");
+                        entry.value = data.write;
+                        pid_stat.io_service_bytes_recursive.push(entry);
+                    }
+                }
+                pid_stat.set_io_service_bytes_recursive(io_service_bytes_recursive);
+            }
             Subsystem::CpuSet(_) => {
                 // not necessary now
             }
