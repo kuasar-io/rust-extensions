@@ -13,6 +13,7 @@ homepage.workspace = true
 [features]
 async = ["tokio", "containerd-shim-protos/async", "async-trait", "futures", "signal-hook-tokio", "pin-project-lite"]
 sandbox = ["async"]
+fdstore = ["containerd-shim-protos/fdstore"]
 
 [[example]]
 name = "skeleton_async"
