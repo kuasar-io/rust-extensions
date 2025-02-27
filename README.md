@@ -3,6 +3,7 @@
 [![CI](https://github.com/mxpv/shim-rs/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/mxpv/shim-rs/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/l/containerd-client)](https://github.com/containerd/rust-extensions/blob/main/LICENSE)
 [![dependency status](https://deps.rs/repo/github/containerd/rust-extensions/status.svg)](https://deps.rs/repo/github/containerd/rust-extensions)
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fkuasar-io%2Frust-extensions.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Fkuasar-io%2Frust-extensions?ref=badge_shield)
 
 A collection of Rust crates to extend containerd.
 
@@ -27,3 +28,7 @@ cargo build --release
 ## Minimum supported Rust version (MSRV)
 The project typically targets the latest stable Rust version.
 Please refer to [rust-toolchain.toml](./rust-toolchain.toml) for exact version currently used by our CIs.
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Fkuasar-io%2Frust-extensions.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Fkuasar-io%2Frust-extensions?ref=badge_large)
