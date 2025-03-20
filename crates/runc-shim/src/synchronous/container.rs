@@ -17,8 +17,8 @@
 use std::{
     collections::HashMap,
     convert::TryFrom,
-    fs::{File, OpenOptions},
-    os::unix::io::{AsRawFd, FromRawFd},
+    fs::OpenOptions,
+    os::fd::AsRawFd,
     path::Path,
     sync::mpsc::{sync_channel, Receiver, SyncSender},
 };
@@ -253,21 +253,25 @@ impl Process for CommonProcess {
         let stream = console_socket
             .accept()
             .map_err(io_error!(e, "accept console socket"))?;
-        let fd = receive_socket(stream.as_raw_fd())?;
+        let f = receive_socket(stream.as_raw_fd())?;
 
         if !self.stdio.stdin.is_empty() {
             debug!("copy_console: pipe stdin to console");
-            let f = unsafe { File::from_raw_fd(fd) };
+            let console_stdin = f
+                .try_clone()
+                .map_err(io_error!(e, "failed to clone console file"))?;
             let stdin = OpenOptions::new()
                 .read(true)
                 .write(true)
                 .open(self.stdio.stdin.as_str())
                 .map_err(io_error!(e, "open stdin"))?;
-            spawn_copy_for_tty(stdin, f, None, None);
+            spawn_copy_for_tty(stdin, console_stdin, None, None);
         }
 
         if !self.stdio.stdout.is_empty() {
-            let f = unsafe { File::from_raw_fd(fd) };
+            let console_stdout = f
+                .try_clone()
+                .map_err(io_error!(e, "failed to clone console file"))?;
             debug!("copy_console: pipe stdout from console");
             let stdout = OpenOptions::new()
                 .write(true)
@@ -280,7 +284,7 @@ impl Process for CommonProcess {
                 .open(self.stdio.stdout.as_str())
                 .map_err(io_error!(e, "open stdout for read"))?;
             spawn_copy_for_tty(
-                f,
+                console_stdout,
                 stdout,
                 None,
                 Some(Box::new(move || {
@@ -289,7 +293,7 @@ impl Process for CommonProcess {
             );
         }
         let console = Console {
-            file: unsafe { File::from_raw_fd(fd) },
+            file: f,
         };
         Ok(console)
     }

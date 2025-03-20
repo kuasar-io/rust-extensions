@@ -16,6 +16,7 @@
 
 use std::{env::current_dir, sync::Arc};
 
+use oci_spec::runtime::Spec;
 use ::runc::options::DeleteOpts;
 use async_trait::async_trait;
 use containerd_shim::{
@@ -69,7 +70,7 @@ impl Shim for Service {
 
     async fn start_shim(&mut self, opts: StartOpts) -> containerd_shim::Result<String> {
         let mut grouping = opts.id.clone();
-        let spec = read_spec("").await?;
+        let spec:Spec = read_spec("").await?;
         match spec.annotations() {
             Some(annotations) => {
                 for &label in GROUP_LABELS.iter() {

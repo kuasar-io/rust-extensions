@@ -16,9 +16,9 @@
 
 use std::{
     convert::TryFrom,
-    os::unix::{
-        io::{AsRawFd, FromRawFd, RawFd},
-        prelude::ExitStatusExt,
+    os::{
+        fd::AsRawFd,
+        unix::prelude::ExitStatusExt,
     },
     path::{Path, PathBuf},
     process::ExitStatus,
@@ -53,6 +53,7 @@ use runc::{Command, Runc, Spawner};
 use tokio::{
     fs::{File, OpenOptions},
     io::{AsyncRead, AsyncReadExt, AsyncWrite},
+    sync::Mutex,
 };
 
 use crate::common::{
@@ -214,6 +215,7 @@ impl ProcessFactory<ExecProcess> for RuncExecFactory {
                 spec: p,
                 exit_signal: Default::default(),
             }),
+            stdin: Arc::new(Mutex::new(None)),
         })
     }
 }
@@ -429,8 +431,8 @@ async fn copy_console(
 ) -> Result<Console> {
     debug!("copy_console: waiting for runtime to send console fd");
     let stream = console_socket.accept().await?;
-    let fd = asyncify(move || -> Result<RawFd> { receive_socket(stream.as_raw_fd()) }).await?;
-    let f = unsafe { File::from_raw_fd(fd) };
+    let f = asyncify(move || -> Result<std::fs::File> { receive_socket(stream.as_raw_fd()) }).await?;
+    let f = File::from_std(f);
     if !stdio.stdin.is_empty() {
         debug!("copy_console: pipe stdin to console");
         let console_stdin = f
