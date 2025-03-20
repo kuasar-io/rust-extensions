@@ -19,8 +19,7 @@
 use std::{fs, io::Read, path::Path};
 
 use cgroups_rs::{
-    cgroup::get_cgroups_relative_paths_by_pid, hierarchies, Cgroup,
-    CgroupPid, MaxValue, Subsystem,
+    cgroup::get_cgroups_relative_paths_by_pid, hierarchies, Cgroup, CgroupPid, MaxValue, Subsystem,
 };
 use containerd_shim_protos::{
     cgroups::metrics::*,
@@ -213,8 +212,7 @@ pub fn collect_metrics(pid: u32) -> Result<Metrics> {
                 mem_stat.set_active_file(mem.stat.active_file);
                 mem_stat.set_cache(mem.stat.cache);
                 mem_stat.set_dirty(mem.stat.dirty);
-                mem_stat
-                    .set_hierarchical_memory_limit(mem.stat.hierarchical_memory_limit as u64);
+                mem_stat.set_hierarchical_memory_limit(mem.stat.hierarchical_memory_limit as u64);
                 mem_stat.set_hierarchical_swap_limit(mem.stat.hierarchical_memsw_limit as u64);
                 mem_stat.set_mapped_file(mem.stat.mapped_file);
                 mem_stat.set_pg_fault(mem.stat.pgfault);

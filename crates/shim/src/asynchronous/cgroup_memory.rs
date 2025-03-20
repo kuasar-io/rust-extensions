@@ -188,7 +188,7 @@ mod tests {
         if !is_cgroup2_unified_mode() {
             // Create a memory cgroup with limits on both memory and swap.
             let path = "cgroupv1_oom_monitor";
-            let cg = Cgroup::new(hierarchies::auto(), path).unwrap();
+            let cg = Cgroup::new(hierarchies::auto(), path);
 
             let mem_controller: &MemController = cg.controller_of().unwrap();
             mem_controller.set_limit(10 * 1024 * 1024).unwrap(); // 10M
