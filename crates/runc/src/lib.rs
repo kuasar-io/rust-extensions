@@ -153,8 +153,8 @@ impl Runc {
 
     /// Create a new container
     pub fn create<P>(&self, id: &str, bundle: P, opts: Option<&CreateOpts>) -> Result<Response>
-        where
-            P: AsRef<Path>,
+    where
+        P: AsRef<Path>,
     {
         let mut args = vec![
             "create".to_string(),
@@ -278,8 +278,8 @@ impl Runc {
 
     /// Run the create, start, delete lifecycle of the container and return its exit status
     pub fn run<P>(&self, id: &str, bundle: P, opts: Option<&CreateOpts>) -> Result<Response>
-        where
-            P: AsRef<Path>,
+    where
+        P: AsRef<Path>,
     {
         let mut args = vec![
             "run".to_string(),
@@ -362,7 +362,12 @@ pub trait Spawner: Debug {
 #[cfg(feature = "async")]
 #[async_trait]
 pub trait Spawner: Debug {
-    async fn execute(&self, cmd: Command, after_start: Box<dyn Fn()+Send>, wait_output: bool) -> Result<(ExitStatus, u32, String, String)>;
+    async fn execute(
+        &self,
+        cmd: Command,
+        after_start: Box<dyn Fn() + Send>,
+        wait_output: bool,
+    ) -> Result<(ExitStatus, u32, String, String)>;
 }
 
 /// Async implementation for [Runc].
@@ -373,7 +378,8 @@ pub trait Spawner: Debug {
 impl Runc {
     async fn launch(&self, cmd: Command, combined_output: bool) -> Result<Response> {
         debug!("Execute command {:?}", cmd);
-        let (status, pid, stdout, stderr) = self.spawner.execute(cmd, Box::new(||{}), true).await?;
+        let (status, pid, stdout, stderr) =
+            self.spawner.execute(cmd, Box::new(|| {}), true).await?;
         if status.success() {
             let output = if combined_output {
                 stdout + stderr.as_str()
@@ -394,7 +400,11 @@ impl Runc {
         }
     }
 
-    async fn launch_without_stdio(&self, cmd: Command, after_start: Box<dyn Fn() + Send>) -> Result<Response> {
+    async fn launch_without_stdio(
+        &self,
+        cmd: Command,
+        after_start: Box<dyn Fn() + Send>,
+    ) -> Result<Response> {
         debug!("Execute command {:?}", cmd);
         let (status, pid, stdout, stderr) = self.spawner.execute(cmd, after_start, false).await?;
         if status.success() {
@@ -419,8 +429,8 @@ impl Runc {
         bundle: P,
         opts: Option<&CreateOpts>,
     ) -> Result<Response>
-        where
-            P: AsRef<Path>,
+    where
+        P: AsRef<Path>,
     {
         let mut args = vec![
             "create".to_string(),
@@ -436,11 +446,18 @@ impl Runc {
             Some(CreateOpts { io: Some(io), .. }) => {
                 io.set(&mut cmd).map_err(Error::UnavailableIO)?;
                 let io_clone = io.clone();
-                let res = self.launch_without_stdio(cmd, Box::new(move ||{io_clone.close_after_start();})).await?;
+                let res = self
+                    .launch_without_stdio(
+                        cmd,
+                        Box::new(move || {
+                            io_clone.close_after_start();
+                        }),
+                    )
+                    .await?;
                 //io.close_after_start();
                 Ok(res)
             }
-            _ => self.launch_without_stdio(cmd, Box::new(||{})).await,
+            _ => self.launch_without_stdio(cmd, Box::new(|| {})).await,
         }
     }
 
@@ -554,8 +571,8 @@ impl Runc {
 
     /// Run the create, start, delete lifecycle of the container and return its exit status
     pub async fn run<P>(&self, id: &str, bundle: P, opts: Option<&CreateOpts>) -> Result<()>
-        where
-            P: AsRef<Path>,
+    where
+        P: AsRef<Path>,
     {
         let mut args = vec![
             "run".to_string(),
@@ -582,7 +599,7 @@ impl Runc {
     }
 
     /// Return the state of a container
-    pub async fn state(&self, id: &str) -> Result<Vec<usize>> {
+    pub async fn state(&self, id: &str) -> Result<Container> {
         let args = vec!["state".to_string(), id.to_string()];
         let res = self.launch(self.command(&args)?, true).await?;
         serde_json::from_str(&res.output).map_err(Error::JsonDeserializationFailed)
@@ -621,9 +638,11 @@ impl Runc {
 mod tests {
     use std::sync::Arc;
 
+    use time::OffsetDateTime;
+
     use super::{
-        *,
         io::{InheritedStdIo, PipedStdIo},
+        *,
     };
 
     fn ok_client() -> Runc {
@@ -658,7 +677,7 @@ mod tests {
                 \"cwd\": \"/path/to/dir\"
             }",
         )
-            .unwrap()
+        .unwrap()
     }
 
     #[test]
@@ -676,10 +695,10 @@ mod tests {
         match fail_runc.create("fake-id", "fake-bundle", Some(&opts)) {
             Ok(_) => panic!("fail_runc returned exit status 0."),
             Err(Error::CommandFailed {
-                    status,
-                    stdout,
-                    stderr,
-                }) => {
+                status,
+                stdout,
+                stderr,
+            }) => {
                 if status.code().unwrap() == 1 && stdout.is_empty() && stderr.is_empty() {
                     eprintln!("fail_runc succeeded.");
                 } else {
@@ -705,10 +724,10 @@ mod tests {
         match fail_runc.run("fake-id", "fake-bundle", Some(&opts)) {
             Ok(_) => panic!("fail_runc returned exit status 0."),
             Err(Error::CommandFailed {
-                    status,
-                    stdout,
-                    stderr,
-                }) => {
+                status,
+                stdout,
+                stderr,
+            }) => {
                 if status.code().unwrap() == 1 && stdout.is_empty() && stderr.is_empty() {
                     eprintln!("fail_runc succeeded.");
                 } else {
@@ -733,10 +752,10 @@ mod tests {
         match fail_runc.exec("fake-id", &proc, Some(&opts)) {
             Ok(_) => panic!("fail_runc returned exit status 0."),
             Err(Error::CommandFailed {
-                    status,
-                    stdout,
-                    stderr,
-                }) => {
+                status,
+                stdout,
+                stderr,
+            }) => {
                 if status.code().unwrap() == 1 && stdout.is_empty() && stderr.is_empty() {
                     eprintln!("fail_runc succeeded.");
                 } else {
@@ -760,10 +779,10 @@ mod tests {
         match fail_runc.delete("fake-id", Some(&opts)) {
             Ok(_) => panic!("fail_runc returned exit status 0."),
             Err(Error::CommandFailed {
-                    status,
-                    stdout,
-                    stderr,
-                }) => {
+                status,
+                stdout,
+                stderr,
+            }) => {
                 if status.code().unwrap() == 1 && stdout.is_empty() && stderr.is_empty() {
                     eprintln!("fail_runc succeeded.");
                 } else {
@@ -807,8 +826,8 @@ mod tests {
     use std::sync::Arc;
 
     use super::{
-        *,
         io::{InheritedStdIo, PipedStdIo},
+        *,
     };
 
     fn ok_client() -> Runc {
@@ -855,10 +874,10 @@ mod tests {
             {
                 Ok(_) => panic!("fail_runc returned exit status 0."),
                 Err(Error::CommandFailed {
-                        status,
-                        stdout,
-                        stderr,
-                    }) => {
+                    status,
+                    stdout,
+                    stderr,
+                }) => {
                     if status.code().unwrap() == 1 && stdout.is_empty() && stderr.is_empty() {
                         eprintln!("fail_runc succeeded.");
                     } else {
@@ -886,10 +905,10 @@ mod tests {
             match fail_runc.start("fake-id").await {
                 Ok(_) => panic!("fail_runc returned exit status 0."),
                 Err(Error::CommandFailed {
-                        status,
-                        stdout,
-                        stderr,
-                    }) => {
+                    status,
+                    stdout,
+                    stderr,
+                }) => {
                     if status.code().unwrap() == 1 && stdout.is_empty() && stderr.is_empty() {
                         eprintln!("fail_runc succeeded.");
                     } else {
@@ -925,10 +944,10 @@ mod tests {
             {
                 Ok(_) => panic!("fail_runc returned exit status 0."),
                 Err(Error::CommandFailed {
-                        status,
-                        stdout,
-                        stderr,
-                    }) => {
+                    status,
+                    stdout,
+                    stderr,
+                }) => {
                     if status.code().unwrap() == 1 && stdout.is_empty() && stderr.is_empty() {
                         eprintln!("fail_runc succeeded.");
                     } else {
@@ -938,8 +957,8 @@ mod tests {
                 Err(e) => panic!("unexpected error from fail_runc: {:?}", e),
             }
         })
-            .await
-            .expect("tokio spawn falied.");
+        .await
+        .expect("tokio spawn falied.");
     }
 
     #[tokio::test]
@@ -960,10 +979,10 @@ mod tests {
             match fail_runc.delete("fake-id", Some(&opts)).await {
                 Ok(_) => panic!("fail_runc returned exit status 0."),
                 Err(Error::CommandFailed {
-                        status,
-                        stdout,
-                        stderr,
-                    }) => {
+                    status,
+                    stdout,
+                    stderr,
+                }) => {
                     if status.code().unwrap() == 1 && stdout.is_empty() && stderr.is_empty() {
                         eprintln!("fail_runc succeeded.");
                     } else {
@@ -973,8 +992,8 @@ mod tests {
                 Err(e) => panic!("unexpected error from fail_runc: {:?}", e),
             }
         })
-            .await
-            .expect("tokio spawn falied.");
+        .await
+        .expect("tokio spawn falied.");
     }
 
     #[tokio::test]
@@ -1010,7 +1029,12 @@ pub struct DefaultExecutor {}
 #[cfg(feature = "async")]
 #[async_trait]
 impl Spawner for DefaultExecutor {
-    async fn execute(&self, cmd: Command, _after_start: Box<dyn Fn()+Send>, wait_output: bool) -> Result<(ExitStatus, u32, String, String)> {
+    async fn execute(
+        &self,
+        cmd: Command,
+        _after_start: Box<dyn Fn() + Send>,
+        wait_output: bool,
+    ) -> Result<(ExitStatus, u32, String, String)> {
         let mut cmd = cmd;
         let mut child = cmd.spawn().map_err(Error::ProcessSpawnFailed)?;
         let pid = child.id().unwrap();
@@ -1023,10 +1047,7 @@ impl Spawner for DefaultExecutor {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             Ok((output.status, pid, stdout, stderr))
         } else {
-            let status = child
-                .wait()
-                .await
-                .map_err(Error::InvalidCommand)?;
+            let status = child.wait().await.map_err(Error::InvalidCommand)?;
             Ok((status, pid, "".to_string(), "".to_string()))
         };
     }
