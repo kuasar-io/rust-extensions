@@ -124,8 +124,7 @@ pub fn collect_metrics(pid: u32) -> Result<Metrics> {
                 metrics.set_pids(pid_stat);
             }
             Subsystem::BlkIo(blkio_ctr) => {
-                let mut pid_stat = metrics.blkio.take().unwrap_or_default();
-                let mut io_service_bytes_recursive: Vec<BlkIOEntry> = Vec::new();
+                let mut blkio_stat = metrics.blkio.take().unwrap_or_default();
                 let blkio = blkio_ctr.blkio().io_service_bytes_recursive;
                 for data in blkio.iter() {
                     if data.read != 0 {
@@ -134,7 +133,7 @@ pub fn collect_metrics(pid: u32) -> Result<Metrics> {
                         entry.minor = data.minor as u64;
                         entry.op = String::from("read");
                         entry.value = data.read;
-                        pid_stat.io_service_bytes_recursive.push(entry);
+                        blkio_stat.io_service_bytes_recursive.push(entry);
                     }
                     if data.write != 0 {
                         let mut entry = BlkIOEntry::new();
@@ -142,10 +141,9 @@ pub fn collect_metrics(pid: u32) -> Result<Metrics> {
                         entry.minor = data.minor as u64;
                         entry.op = String::from("write");
                         entry.value = data.write;
-                        pid_stat.io_service_bytes_recursive.push(entry);
+                        blkio_stat.io_service_bytes_recursive.push(entry);
                     }
                 }
-                pid_stat.set_io_service_bytes_recursive(io_service_bytes_recursive);
             }
             Subsystem::CpuSet(_) => {
                 // not necessary now
