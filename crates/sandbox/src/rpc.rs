@@ -177,7 +177,7 @@ where
             update_resources(&req.sandbox_id, sandbox.deref_mut(), tasks, old_tasks).await?;
             data
         };
-        
+
         data.extensions.insert("tasks".to_string(), tasks_any);
         self.sandboxer.update(&req.sandbox_id, data).await?;
         info!("update sandbox {} successfully", req.sandbox_id);
@@ -246,7 +246,7 @@ where
             (
                 data.created_at.map(|x| x.into()),
                 data.exited_at.map(|x| x.into()),
-                data.task_address
+                data.task_address,
             )
         };
         debug!("status sandbox {} returns {:?}", req.sandbox_id, state);

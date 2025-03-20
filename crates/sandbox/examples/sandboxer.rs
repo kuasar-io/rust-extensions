@@ -32,6 +32,19 @@ pub struct ExampleContainer {
 impl Sandboxer for ExampleSandboxer {
     type Sandbox = ExampleSandbox;
 
+    async fn update(&self, id: &str, s: SandboxData) -> Result<()> {
+        let sandbox_mutex = self
+            .sandboxes
+            .read()
+            .await
+            .get(id)
+            .ok_or(anyhow!("Not found: {}", id))?
+            .clone();
+        let mut sandbox = sandbox_mutex.lock().await;
+        sandbox.data = s;
+        Ok(())
+    }
+
     async fn create(&self, id: &str, s: SandboxOption) -> Result<()> {
         let sandbox = ExampleSandbox {
             status: SandboxStatus::Created,

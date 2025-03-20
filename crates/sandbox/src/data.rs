@@ -73,7 +73,7 @@ impl SandboxData {
     }
 
     pub fn task_resources(&self) -> Result<TaskResources, Status> {
-        let mut tasks = TaskResources {tasks: vec![]};
+        let mut tasks = TaskResources { tasks: vec![] };
         if let Some(a) = self.extensions.get("tasks") {
             tasks = serde_json::from_slice(a.value.as_slice()).map_err(|e| {
                 Status::invalid_argument(format!("failed to unmarshal old tasks {}", e))
@@ -212,7 +212,7 @@ impl ProcessData {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Any {
     pub type_url: String,
-    #[serde(with="crate::base64")]
+    #[serde(with = "crate::base64")]
     pub value: Vec<u8>,
 }
 
