@@ -55,6 +55,11 @@ pub async fn monitor_notify_by_pid(pid: i32, exit_code: i32) -> Result<()> {
     monitor.notify_by_pid(pid, exit_code).await
 }
 
+pub fn monitor_notify_by_pid_blocking(pid: i32, exit_code: i32) -> Result<()> {
+    let monitor = MONITOR.blocking_lock();
+    monitor.notify_by_pid_blocking(pid, exit_code)
+}
+
 pub async fn monitor_notify_by_exec(id: &str, exec_id: &str, exit_code: i32) -> Result<()> {
     let monitor = MONITOR.lock().await;
     monitor.notify_by_exec(id, exec_id, exit_code).await
@@ -101,6 +106,13 @@ impl Monitor {
         Ok(())
     }
 
+    pub fn notify_by_pid_blocking(&self, pid: i32, exit_code: i32) -> Result<()> {
+        let subject = Subject::Pid(pid);
+        self.notify_topic_blocking(&Topic::Pid, &subject, exit_code);
+        self.notify_topic_blocking(&Topic::All, &subject, exit_code);
+        Ok(())
+    }
+
     pub async fn notify_by_exec(&self, cid: &str, exec_id: &str, exit_code: i32) -> Result<()> {
         let subject = Subject::Exec(cid.into(), exec_id.into());
         self.notify_topic(&Topic::Exec, &subject, exit_code).await;
@@ -121,6 +133,27 @@ impl Monitor {
                         exit_code,
                     })
                     .await
+                    .map_err(other_error!(e, "failed to send exit code"));
+                results.push(res);
+            }
+        }
+        let mut result_iter = results.iter();
+        while let Some(Err(e)) = result_iter.next() {
+            error!("failed to send exit code to subscriber {:?}", e)
+        }
+    }
+
+    fn notify_topic_blocking(&self, topic: &Topic, subject: &Subject, exit_code: i32) {
+        let mut results = Vec::new();
+        if let Some(subs) = self.topic_subs.get(topic) {
+            let subscribers = subs.iter().filter_map(|x| self.subscribers.get(x));
+            for sub in subscribers {
+                let res = sub
+                    .tx
+                    .blocking_send(ExitEvent {
+                        subject: subject.clone(),
+                        exit_code,
+                    })
                     .map_err(other_error!(e, "failed to send exit code"));
                 results.push(res);
             }

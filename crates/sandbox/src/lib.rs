@@ -20,6 +20,7 @@ use crate::rpc::SandboxController;
 use crate::signal::ExitSignal;
 
 pub mod args;
+pub mod base64;
 pub mod config;
 pub mod data;
 pub mod error;
@@ -27,7 +28,6 @@ pub mod rpc;
 pub mod signal;
 pub mod spec;
 pub mod utils;
-pub mod base64;
 
 /// Generated GRPC apis.
 pub mod api {
@@ -175,16 +175,16 @@ mod unix {
 
         fn connect_info(&self) -> Self::ConnectInfo {
             UdsConnectInfo {
-                peer_addr: self.0.peer_addr().ok().map(Arc::new),
-                peer_cred: self.0.peer_cred().ok(),
+                _peer_addr: self.0.peer_addr().ok().map(Arc::new),
+                _peer_cred: self.0.peer_cred().ok(),
             }
         }
     }
 
     #[derive(Clone, Debug)]
     pub struct UdsConnectInfo {
-        pub peer_addr: Option<Arc<tokio::net::unix::SocketAddr>>,
-        pub peer_cred: Option<tokio::net::unix::UCred>,
+        pub _peer_addr: Option<Arc<tokio::net::unix::SocketAddr>>,
+        pub _peer_cred: Option<tokio::net::unix::UCred>,
     }
 
     impl AsyncRead for UnixStream {

@@ -36,7 +36,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use time::{serde::timestamp, OffsetDateTime};
+use time::{serde::rfc3339, OffsetDateTime};
 
 /// Information for runc container
 #[derive(Debug, Serialize, Deserialize)]
@@ -46,13 +46,16 @@ pub struct Container {
     pub status: String,
     pub bundle: String,
     pub rootfs: String,
-    #[serde(with = "timestamp")]
+    #[serde(with = "rfc3339")]
     pub created: OffsetDateTime,
     pub annotations: HashMap<String, String>,
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::SystemTime;
+    use time::macros::datetime;
+
     use super::*;
 
     #[test]
@@ -64,7 +67,7 @@ mod tests {
                 "status": "RUNNING",
                 "bundle": "/path/to/bundle",
                 "rootfs": "/path/to/rootfs",
-                "created": 1431684000,
+                "created": "2024-09-30T07:13:12.122619299Z",
                 "annotations": {
                     "foo": "bar"
                 }
@@ -76,10 +79,7 @@ mod tests {
         assert_eq!(c.status, "RUNNING");
         assert_eq!(c.bundle, "/path/to/bundle");
         assert_eq!(c.rootfs, "/path/to/rootfs");
-        assert_eq!(
-            c.created,
-            OffsetDateTime::from_unix_timestamp(1431684000).unwrap()
-        );
+        assert_eq!(c.created, datetime!(2024-09-30 07:13:12.122619299 UTC));
         assert_eq!(c.annotations.get("foo"), Some(&"bar".to_string()));
         assert_eq!(c.annotations.get("bar"), None);
     }

@@ -47,11 +47,7 @@ pub use protos::{
     ttrpc::{context::Context, Result as TtrpcResult},
 };
 
-#[cfg(feature = "async")]
-pub use crate::asynchronous::*;
 pub use crate::error::{Error, Result};
-#[cfg(not(feature = "async"))]
-pub use crate::synchronous::*;
 
 #[macro_use]
 pub mod error;

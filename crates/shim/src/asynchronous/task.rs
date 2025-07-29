@@ -181,7 +181,12 @@ where
             .await;
         };
 
-        info!("Start request for {} {} returns pid {}", req.id(), req.exec_id(), resp.pid());
+        info!(
+            "Start request for {} {} returns pid {}",
+            req.id(),
+            req.exec_id(),
+            resp.pid()
+        );
         Ok(resp)
     }
 
@@ -243,7 +248,8 @@ where
     }
 
     async fn kill(&self, _ctx: &TtrpcContext, req: KillRequest) -> TtrpcResult<Empty> {
-        info!("Kill request for {} {} with signal {} and all {}",
+        info!(
+            "Kill request for {} {} with signal {} and all {}",
             req.id(),
             req.exec_id(),
             req.signal(),
@@ -253,12 +259,17 @@ where
         container
             .kill(req.exec_id().as_option(), req.signal, req.all)
             .await?;
-        info!("Kill request for {} {} returns successfully", req.id(), req.exec_id());
+        info!(
+            "Kill request for {} {} returns successfully",
+            req.id(),
+            req.exec_id()
+        );
         Ok(Empty::new())
     }
 
     async fn exec(&self, _ctx: &TtrpcContext, req: ExecProcessRequest) -> TtrpcResult<Empty> {
-        info!("Exec request for container {} with exec_id {} and terminal {}",
+        info!(
+            "Exec request for container {} with exec_id {} and terminal {}",
             req.id(),
             req.exec_id(),
             req.terminal(),
@@ -280,7 +291,8 @@ where
     async fn resize_pty(&self, _ctx: &TtrpcContext, req: ResizePtyRequest) -> TtrpcResult<Empty> {
         debug!(
             "Resize pty request for container {}, exec_id: {}",
-            req.id(), req.exec_id()
+            req.id(),
+            req.exec_id()
         );
         let mut container = self.get_container(req.id()).await?;
         container
@@ -319,7 +331,7 @@ where
     }
 
     async fn wait(&self, _ctx: &TtrpcContext, req: WaitRequest) -> TtrpcResult<WaitResponse> {
-        info!("Wait request for {} {}", req.id() ,req.exec_id());
+        info!("Wait request for {} {}", req.id(), req.exec_id());
         let exec_id = req.exec_id.as_str().as_option();
         let wait_rx = {
             let mut container = self.get_container(req.id()).await?;
@@ -328,7 +340,8 @@ where
                 let mut resp = WaitResponse::new();
                 resp.exit_status = state.exit_status;
                 resp.exited_at = state.exited_at;
-                info!("Wait request for {} {} returns {}",
+                info!(
+                    "Wait request for {} {} returns {}",
                     req.id(),
                     req.exec_id(),
                     resp.exit_status(),
@@ -346,7 +359,8 @@ where
         resp.set_exit_status(code as u32);
         let ts = convert_to_timestamp(exited_at);
         resp.set_exited_at(ts);
-        info!("Wait request for {} {} returns {}",
+        info!(
+            "Wait request for {} {} returns {}",
             req.id(),
             req.exec_id(),
             resp.exit_status(),
